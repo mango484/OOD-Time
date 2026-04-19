@@ -438,7 +438,42 @@ tbody td {
   vertical-align: middle;
   flex-shrink: 0;
 }
-/* Other project write-in */
+/* Project list in manage modal */
+.project-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  margin-bottom: 6px;
+  background: var(--paper);
+  font-size: 0.85rem;
+}
+.project-list-item:last-child { margin-bottom: 0; }
+.project-list-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-remove-project {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-remove-project:hover { border-color: #e05555; color: #e05555; }
+.project-list-empty {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: center;
+  padding: 16px 0;
+  letter-spacing: 0.04em;
+}
 .other-project-input {
   margin-top: 8px;
   display: none;
@@ -725,14 +760,22 @@ tr.edit-row td:first-child {
   </div>
 </div>
 
-<!-- ADD PROJECT MODAL -->
+<!-- MANAGE PROJECTS MODAL -->
 <div class="modal-backdrop" id="projectModal">
-  <div class="modal">
-    <h3>Add Project</h3>
-    <input type="text" id="newProjectName" placeholder="Project name..." maxlength="60">
+  <div class="modal" style="width:420px">
+    <h3>Manage Projects</h3>
+
+    <!-- existing projects list -->
+    <div id="projectList" style="margin-bottom:18px;max-height:240px;overflow-y:auto;"></div>
+
+    <!-- add new -->
+    <div style="display:flex;gap:8px;margin-bottom:16px;">
+      <input type="text" id="newProjectName" placeholder="New project name..." maxlength="60" style="flex:1">
+      <button class="btn-primary" style="padding:8px 16px;white-space:nowrap" onclick="addProject()">+ Add</button>
+    </div>
+
     <div class="modal-actions">
-      <button class="btn-ghost" onclick="closeProjectModal()">Cancel</button>
-      <button class="btn-primary" onclick="addProject()">Add Project</button>
+      <button class="btn-ghost" onclick="closeProjectModal()">Done</button>
     </div>
   </div>
 </div>
@@ -742,20 +785,19 @@ tr.edit-row td:first-child {
 <script>
 // ── Config ───────────────────────────────────────────────────
 let SHEET_URL = 'https://script.google.com/macros/s/AKfycbysL5G854DKmpQAilKk9Xkks14KaXZxVW3T8RbKZ7rVincQY_JKAKLTMg0qMcXn1H9Scg/exec';
-let entries = [];
-let projects = ['26-01 Marengo', '26-02 Venice', '26-03 Huber Haus'];
+let entries  = [];
+let projects = [];
 const PROJECT_COLORS = ['#c84b2f','#3a7d4b','#2f5fc8','#8b4fc8','#c87f2f','#2f9bc8','#c82f7f'];
 
-let useStartEnd = false; // false = manual, true = start/end
+let useStartEnd = false;
 
 // ── Init ─────────────────────────────────────────────────────
 document.getElementById('dateStamp').textContent =
   new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
 
-renderProjectSelect();
 document.getElementById('dateInput').value = todayISO();
 showConnectedBanner();
-loadEntries();
+loadProjects().then(() => loadEntries());
 
 // ── Time Mode Toggle ─────────────────────────────────────────
 function switchTimeMode() {
@@ -1177,8 +1219,22 @@ async function saveEdit(id) {
   }
 }
 
-// ── Project modal ─────────────────────────────────────────────
+// ── Projects (Sheets-backed) ──────────────────────────────────
+async function loadProjects() {
+  try {
+    const res  = await fetch(SHEET_URL + '?action=getProjects', { method: 'GET' });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      projects = data.projects;
+      renderProjectSelect();
+    }
+  } catch (err) {
+    // fall through with empty list
+  }
+}
+
 function openProjectModal() {
+  renderProjectList();
   document.getElementById('projectModal').classList.add('open');
   setTimeout(() => document.getElementById('newProjectName').focus(), 50);
 }
@@ -1186,16 +1242,72 @@ function closeProjectModal() {
   document.getElementById('projectModal').classList.remove('open');
   document.getElementById('newProjectName').value = '';
 }
-function addProject() {
+
+function renderProjectList() {
+  const list = document.getElementById('projectList');
+  if (projects.length === 0) {
+    list.innerHTML = '<div class="project-list-empty">No projects yet.</div>';
+    return;
+  }
+  list.innerHTML = projects.map((p, i) => `
+    <div class="project-list-item">
+      <span class="project-list-name">
+        <span class="project-dot" style="background:${getProjectColor(p)}"></span>${p}
+      </span>
+      <button class="btn-remove-project" onclick="removeProject(${i})">Remove</button>
+    </div>`).join('');
+}
+
+async function addProject() {
   const name = document.getElementById('newProjectName').value.trim();
   if (!name) { showToast('Please enter a project name.'); return; }
   if (projects.includes(name)) { showToast('Project already exists.'); return; }
-  projects.push(name);
-  renderProjectSelect();
-  document.getElementById('projectSelect').value = name;
-  closeProjectModal();
-  showToast(`"${name}" added ✓`);
+
+  const addBtn = document.querySelector('#projectModal .btn-primary');
+  addBtn.textContent = 'Saving...'; addBtn.disabled = true;
+
+  try {
+    const params = new URLSearchParams({ action: 'addProject', name });
+    const res    = await fetch(SHEET_URL + '?' + params.toString(), { method: 'GET' });
+    const result = await res.json();
+    if (result.status === 'ok') {
+      projects.push(name);
+      renderProjectSelect();
+      document.getElementById('projectSelect').value = name;
+      document.getElementById('newProjectName').value = '';
+      renderProjectList();
+      showToast(`"${name}" added ✓`);
+    } else {
+      showToast('Error: ' + result.message);
+    }
+  } catch (err) {
+    showToast('Could not save project.');
+  } finally {
+    addBtn.textContent = '+ Add'; addBtn.disabled = false;
+  }
 }
+
+async function removeProject(index) {
+  const name = projects[index];
+  if (!confirm(`Remove "${name}" from the project list?`)) return;
+
+  try {
+    const params = new URLSearchParams({ action: 'removeProject', name });
+    const res    = await fetch(SHEET_URL + '?' + params.toString(), { method: 'GET' });
+    const result = await res.json();
+    if (result.status === 'ok') {
+      projects.splice(index, 1);
+      renderProjectSelect();
+      renderProjectList();
+      showToast(`"${name}" removed.`);
+    } else {
+      showToast('Error: ' + result.message);
+    }
+  } catch (err) {
+    showToast('Could not remove project.');
+  }
+}
+
 document.getElementById('newProjectName').addEventListener('keydown', e => {
   if (e.key === 'Enter')  addProject();
   if (e.key === 'Escape') closeProjectModal();
