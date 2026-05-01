@@ -543,6 +543,30 @@ tbody td {
 }
 .btn-disconnect:hover { border-color: var(--accent); color: var(--accent); }
 
+/* Collapsible log */
+.collapsible-header { user-select: none; }
+.collapse-chevron {
+  font-size: 1.1rem;
+  color: var(--muted);
+  transition: transform 0.2s;
+  display: inline-block;
+}
+.collapse-chevron.collapsed { transform: rotate(-90deg); }
+#logBody {
+  overflow: hidden;
+  transition: opacity 0.2s;
+}
+#logBody.collapsed { display: none; }
+.log-period-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--line);
+  padding: 2px 8px;
+  align-self: center;
+}
+
 /* Loading state */
 .loading-row td {
   text-align: center;
@@ -739,32 +763,40 @@ tr.edit-row td:first-child {
 
   <!-- LOG -->
   <div class="log-section">
-    <div class="log-header">
-      <div class="log-title">Time Log</div>
-      <button class="btn-export" id="syncBtn" onclick="loadEntries()">↻ Refresh</button>
-    </div>
-    <div id="tableWrap">
-      <div class="empty-state">
-        <div class="empty-icon">◷</div>
-        No entries yet — log your first session above.
+    <div class="log-header collapsible-header" onclick="toggleLog()" style="cursor:pointer;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="log-title">Time Log</div>
+        <span class="log-period-label" id="logPeriodLabel"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn-export" id="syncBtn" onclick="event.stopPropagation();loadEntries();">↻ Refresh</button>
+        <span class="collapse-chevron" id="logChevron">▾</span>
       </div>
     </div>
-    <div class="summary-bar" id="summaryBar" style="display:none">
-      <div class="summary-item">
-        <span class="summary-label">Total Hours</span>
-        <span class="summary-value" id="totalHours">0</span>
+    <div id="logBody">
+      <div id="tableWrap">
+        <div class="empty-state">
+          <div class="empty-icon">◷</div>
+          No entries yet — log your first session above.
+        </div>
       </div>
-      <div class="summary-item">
-        <span class="summary-label">Entries</span>
-        <span class="summary-value" id="totalEntries">0</span>
-      </div>
-      <div class="summary-item">
-        <span class="summary-label">Projects</span>
-        <span class="summary-value" id="totalProjects">0</span>
-      </div>
-      <div class="summary-item">
-        <span class="summary-label">Total Billable</span>
-        <span class="summary-value" id="totalBillable">$0</span>
+      <div class="summary-bar" id="summaryBar" style="display:none">
+        <div class="summary-item">
+          <span class="summary-label">Total Hours</span>
+          <span class="summary-value" id="totalHours">0</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Entries</span>
+          <span class="summary-value" id="totalEntries">0</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Projects</span>
+          <span class="summary-value" id="totalProjects">0</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Total Billable</span>
+          <span class="summary-value" id="totalBillable">$0</span>
+        </div>
       </div>
     </div>
   </div>
@@ -1121,7 +1153,14 @@ function getProjectColor(name) {
 }
 
 // ── Table ─────────────────────────────────────────────────────
-let editingId = null; // track which row is open
+let editingId  = null;
+let logExpanded = true;
+
+function toggleLog() {
+  logExpanded = !logExpanded;
+  document.getElementById('logBody').classList.toggle('collapsed', !logExpanded);
+  document.getElementById('logChevron').classList.toggle('collapsed', !logExpanded);
+}
 
 function showTableLoading() {
   const wrap = document.getElementById('tableWrap');
@@ -1136,23 +1175,39 @@ function renderTable() {
   const wrap       = document.getElementById('tableWrap');
   const summaryBar = document.getElementById('summaryBar');
 
-  if (entries.length === 0) {
-    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">◷</div>${SHEET_URL ? 'No entries yet — log your first session above.' : 'Connect your Google Sheet above to get started.'}</div>`;
+  // Filter to past 30 days
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  const recent = entries.filter(e => {
+    const d = new Date(e.date);
+    return !isNaN(d) && d >= cutoff;
+  });
+
+  // Update period label
+  const label = document.getElementById('logPeriodLabel');
+  if (label) {
+    const from = cutoff.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+    const to   = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric' });
+    label.textContent = `${from} – ${to}`;
+  }
+
+  if (recent.length === 0) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">◷</div>${entries.length > 0 ? 'No entries in the past 30 days.' : 'No entries yet — log your first session above.'}</div>`;
     summaryBar.style.display = 'none';
     editingId = null;
     return;
   }
 
   summaryBar.style.display = 'flex';
-  const totalHours     = entries.reduce((s, e) => s + e.hours, 0);
-  const totalBillable  = entries.reduce((s, e) => s + e.billable, 0);
-  const uniqueProjects = new Set(entries.map(e => e.project)).size;
+  const totalHours     = recent.reduce((s, e) => s + e.hours, 0);
+  const totalBillable  = recent.reduce((s, e) => s + e.billable, 0);
+  const uniqueProjects = new Set(recent.map(e => e.project)).size;
   document.getElementById('totalHours').textContent    = totalHours % 1 === 0 ? totalHours : totalHours.toFixed(2);
-  document.getElementById('totalEntries').textContent  = entries.length;
+  document.getElementById('totalEntries').textContent  = recent.length;
   document.getElementById('totalProjects').textContent = uniqueProjects;
   document.getElementById('totalBillable').textContent = '$' + totalBillable.toFixed(2);
 
-  const tbody = entries.map(e => {
+  const tbody = recent.map(e => {
     if (editingId === e.id) return buildEditRow(e);
     return `
       <tr class="data-row" onclick="openEditRow('${e.id}')">
