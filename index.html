@@ -723,6 +723,12 @@ tr.edit-row td:first-child {
       <label for="notesInput">Notes</label>
       <textarea id="notesInput" placeholder="What did you work on?"></textarea>
 
+      <label for="rateInput">Rate ($/hr)</label>
+      <div class="time-input-wrap">
+        <span class="time-unit" style="margin-right:2px;">$</span>
+        <input type="number" id="rateInput" min="0" step="1" value="150" style="width:100px;">
+      </div>
+
       <div class="form-actions">
         <button class="btn-ghost" onclick="clearForm()">Clear</button>
         <button class="btn-primary" onclick="addEntry()">Log Time →</button>
@@ -756,8 +762,85 @@ tr.edit-row td:first-child {
         <span class="summary-label">Projects</span>
         <span class="summary-value" id="totalProjects">0</span>
       </div>
+      <div class="summary-item">
+        <span class="summary-label">Total Billable</span>
+        <span class="summary-value" id="totalBillable">$0</span>
+      </div>
     </div>
   </div>
+
+  <!-- EXPENSES -->
+  <div class="log-section" style="margin-top:56px;">
+    <div class="log-header">
+      <div class="log-title" style="color:var(--success)">Expenses</div>
+      <button class="btn-export" onclick="loadExpenses()" style="background:var(--success);border-color:var(--success);">↻ Refresh</button>
+    </div>
+
+    <!-- Expense entry form -->
+    <div class="entry-form" style="margin-bottom:28px;position:relative;">
+      <div style="position:absolute;top:-10px;left:20px;background:var(--success);color:var(--paper);font-size:0.62rem;letter-spacing:0.12em;padding:2px 10px;">NEW EXPENSE</div>
+      <div class="form-grid">
+
+        <label for="expDateInput">Date</label>
+        <input type="date" id="expDateInput">
+
+        <label for="expPersonSelect">Who</label>
+        <div class="select-arrow-wrap">
+          <select id="expPersonSelect">
+            <option value="">— select —</option>
+            <option value="CH">CH</option>
+            <option value="GF">GF</option>
+          </select>
+        </div>
+
+        <label for="expProjectSelect">Project</label>
+        <div>
+          <div class="select-arrow-wrap">
+            <select id="expProjectSelect" onchange="handleExpProjectChange()">
+              <option value="">— select project —</option>
+            </select>
+          </div>
+          <div class="other-project-input" id="expOtherProjectWrap">
+            <input type="text" id="expOtherProjectInput" placeholder="Describe project...">
+          </div>
+        </div>
+
+        <label for="expAmount">Amount</label>
+        <div class="time-input-wrap">
+          <span class="time-unit" style="margin-right:2px;">$</span>
+          <input type="number" id="expAmount" min="0" step="0.01" placeholder="0.00" style="width:120px;">
+        </div>
+
+        <label for="expNotes">Description</label>
+        <textarea id="expNotes" placeholder="What was the expense for?"></textarea>
+
+        <div class="form-actions">
+          <button class="btn-ghost" onclick="clearExpenseForm()">Clear</button>
+          <button class="btn-primary" style="background:var(--success);border-color:var(--success);" onclick="addExpense()">Log Expense →</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Expense log table -->
+    <div id="expenseTableWrap">
+      <div class="empty-state">
+        <div class="empty-icon">$</div>
+        No expenses yet — log your first expense above.
+      </div>
+    </div>
+    <div class="summary-bar" id="expenseSummaryBar" style="display:none;">
+      <div class="summary-item">
+        <span class="summary-label">Total Expenses</span>
+        <span class="summary-value" id="totalExpenseAmt" style="color:var(--success)">$0</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Entries</span>
+        <span class="summary-value" id="totalExpenseEntries" style="color:var(--success)">0</span>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- MANAGE PROJECTS MODAL -->
@@ -795,9 +878,14 @@ let useStartEnd = false;
 document.getElementById('dateStamp').textContent =
   new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
 
-document.getElementById('dateInput').value = todayISO();
+document.getElementById('dateInput').value  = todayISO();
+document.getElementById('expDateInput').value = todayISO();
 showConnectedBanner();
-loadProjects().then(() => loadEntries());
+loadProjects().then(() => {
+  renderExpProjectSelects();
+  loadEntries();
+  loadExpenses();
+});
 
 // ── Time Mode Toggle ─────────────────────────────────────────
 function switchTimeMode() {
@@ -893,12 +981,14 @@ async function loadEntries() {
     const data = await res.json();
     if (data.status === 'ok') {
       entries = data.entries.reverse().map((e) => ({
-        id:      e.id,
-        date:    e.date,
-        person:  e.person || '',
-        hours:   parseFloat(e.hours),
-        project: e.project,
-        notes:   e.notes || ''
+        id:       e.id,
+        date:     e.date,
+        person:   e.person || '',
+        hours:    parseFloat(e.hours),
+        project:  e.project,
+        notes:    e.notes || '',
+        rate:     parseFloat(e.rate) || 150,
+        billable: parseFloat(e.billable) || 0
       }));
       renderTable();
     } else {
@@ -918,7 +1008,8 @@ async function postEntry(entry) {
     person:  entry.person || '',
     hours:   entry.hours,
     project: entry.project,
-    notes:   entry.notes || ''
+    notes:   entry.notes || '',
+    rate:    entry.rate || 150
   });
   const res = await fetch(SHEET_URL + '?' + params.toString(), { method: 'GET' });
   return await res.json();
@@ -926,19 +1017,20 @@ async function postEntry(entry) {
 
 // ── Form ──────────────────────────────────────────────────────
 function renderProjectSelect() {
-  const sel     = document.getElementById('projectSelect');
-  const current = sel.value;
-  sel.innerHTML = '<option value="">— select project —</option>';
-  projects.forEach(p => {
-    const opt = document.createElement('option');
-    opt.value = p; opt.textContent = p;
-    sel.appendChild(opt);
+  ['projectSelect', 'expProjectSelect'].forEach(id => {
+    const sel     = document.getElementById(id);
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— select project —</option>';
+    projects.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p; opt.textContent = p;
+      sel.appendChild(opt);
+    });
+    const other = document.createElement('option');
+    other.value = '__other__'; other.textContent = 'Other...';
+    sel.appendChild(other);
+    if (current) sel.value = current;
   });
-  // always append Other at the bottom
-  const other = document.createElement('option');
-  other.value = '__other__'; other.textContent = 'Other...';
-  sel.appendChild(other);
-  if (current) sel.value = current;
 }
 
 function handleProjectChange() {
@@ -959,6 +1051,7 @@ async function addEntry() {
     ? document.getElementById('otherProjectInput').value.trim()
     : rawProject;
   const notes   = document.getElementById('notesInput').value.trim();
+  const rate    = parseFloat(document.getElementById('rateInput').value) || 150;
 
   if (rawProject === '__other__' && !project) { showToast('Please describe the project.'); return; }
 
@@ -985,7 +1078,7 @@ async function addEntry() {
   logBtn.disabled = true;
 
   try {
-    const result = await postEntry({ date: dateDisplay, person, hours, project, notes });
+    const result = await postEntry({ date: dateDisplay, person, hours, project, notes, rate });
     if (result.status === 'ok') {
       showToast('Entry logged to Google Sheets ✓');
       clearForm();
@@ -1009,6 +1102,7 @@ function clearForm() {
   document.getElementById('otherProjectInput').value = '';
   document.getElementById('otherProjectWrap').classList.remove('visible');
   document.getElementById('notesInput').value   = '';
+  document.getElementById('rateInput').value    = '150';
   // also clear start/end
   document.getElementById('startTime').value = '';
   document.getElementById('endTime').value   = '';
@@ -1051,10 +1145,12 @@ function renderTable() {
 
   summaryBar.style.display = 'flex';
   const totalHours     = entries.reduce((s, e) => s + e.hours, 0);
+  const totalBillable  = entries.reduce((s, e) => s + e.billable, 0);
   const uniqueProjects = new Set(entries.map(e => e.project)).size;
   document.getElementById('totalHours').textContent    = totalHours % 1 === 0 ? totalHours : totalHours.toFixed(2);
   document.getElementById('totalEntries').textContent  = entries.length;
   document.getElementById('totalProjects').textContent = uniqueProjects;
+  document.getElementById('totalBillable').textContent = '$' + totalBillable.toFixed(2);
 
   const tbody = entries.map(e => {
     if (editingId === e.id) return buildEditRow(e);
@@ -1065,13 +1161,15 @@ function renderTable() {
         <td class="td-hours">${e.hours % 1 === 0 ? e.hours : e.hours.toFixed(2)}h</td>
         <td class="td-project"><span class="project-dot" style="background:${getProjectColor(e.project)}"></span>${e.project}</td>
         <td class="td-notes">${e.notes || '<span style="opacity:0.35">—</span>'}</td>
+        <td class="td-hours" style="color:var(--muted);font-size:0.78rem;">$${e.rate.toFixed(0)}/hr</td>
+        <td class="td-hours" style="color:var(--accent);">$${e.billable.toFixed(2)}</td>
       </tr>`;
   }).join('');
 
   wrap.innerHTML = `
     <div class="log-table-wrap">
     <table>
-      <thead><tr><th>Date</th><th>Who</th><th>Hours</th><th>Project</th><th>Notes</th></tr></thead>
+      <thead><tr><th>Date</th><th>Who</th><th>Hours</th><th>Project</th><th>Notes</th><th>Rate</th><th>Billable</th></tr></thead>
       <tbody>${tbody}</tbody>
     </table>
     </div>`;
@@ -1129,6 +1227,16 @@ function buildEditRow(e) {
         <div class="edit-cell-inner">
           <label>Notes</label>
           <textarea id="edit-notes">${e.notes || ''}</textarea>
+        </div>
+      </td>
+      <td>
+        <div class="edit-cell-inner">
+          <label>Rate ($/hr)</label>
+          <input type="number" id="edit-rate" min="0" step="1" value="${e.rate || 150}">
+        </div>
+      </td>
+      <td>
+        <div class="edit-cell-inner" style="justify-content:flex-end;height:100%;">
           <div class="edit-actions">
             <button class="btn-save" onclick="saveEdit('${e.id}')">Save</button>
             <button class="btn-cancel-edit" onclick="cancelEdit()">Cancel</button>
@@ -1186,6 +1294,7 @@ async function saveEdit(id) {
     ? document.getElementById('edit-other-project').value.trim()
     : rawProject;
   const notes      = document.getElementById('edit-notes').value.trim();
+  const rate       = parseFloat(document.getElementById('edit-rate').value) || 150;
 
   if (!dateVal)              { showToast('Please select a date.'); return; }
   if (!hours || hours <= 0)  { showToast('Please enter valid hours.'); return; }
@@ -1200,7 +1309,7 @@ async function saveEdit(id) {
   try {
     const params = new URLSearchParams({
       action: 'updateEntry',
-      id, date: dateDisplay, person, hours, project, notes
+      id, date: dateDisplay, person, hours, project, notes, rate
     });
     const res    = await fetch(SHEET_URL + '?' + params.toString(), { method: 'GET' });
     const result = await res.json();
@@ -1315,6 +1424,285 @@ document.getElementById('newProjectName').addEventListener('keydown', e => {
 document.getElementById('projectModal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeProjectModal();
 });
+
+// ── Expenses ──────────────────────────────────────────────────
+let expenses = [];
+let expEditingId = null;
+
+function renderExpProjectSelects() {
+  ['expProjectSelect'].forEach(id => {
+    const sel     = document.getElementById(id);
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— select project —</option>';
+    projects.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p; opt.textContent = p;
+      sel.appendChild(opt);
+    });
+    const other = document.createElement('option');
+    other.value = '__other__'; other.textContent = 'Other...';
+    sel.appendChild(other);
+    if (current) sel.value = current;
+  });
+}
+
+function handleExpProjectChange() {
+  const isOther = document.getElementById('expProjectSelect').value === '__other__';
+  const wrap    = document.getElementById('expOtherProjectWrap');
+  wrap.classList.toggle('visible', isOther);
+  if (isOther) setTimeout(() => document.getElementById('expOtherProjectInput').focus(), 50);
+  else document.getElementById('expOtherProjectInput').value = '';
+}
+
+async function loadExpenses() {
+  if (!SHEET_URL) return;
+  document.getElementById('expenseTableWrap').innerHTML = `
+    <div class="log-table-wrap">
+    <table><thead><tr><th>Date</th><th>Who</th><th>Project</th><th>Amount</th><th>Description</th></tr></thead>
+    <tbody><tr class="loading-row"><td colspan="5">Loading...</td></tr></tbody>
+    </table></div>`;
+  try {
+    const res  = await fetch(SHEET_URL + '?action=getExpenses', { method: 'GET' });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      expenses = data.expenses.reverse().map(e => ({
+        id:      e.id,
+        date:    e.date,
+        person:  e.person || '',
+        project: e.project,
+        amount:  parseFloat(e.amount),
+        notes:   e.notes || ''
+      }));
+      renderExpenseTable();
+    } else {
+      showToast('Error loading expenses: ' + data.message);
+      renderExpenseTable();
+    }
+  } catch (err) {
+    showToast('Could not load expenses.');
+    renderExpenseTable();
+  }
+}
+
+async function addExpense() {
+  if (!SHEET_URL) { showToast('Connect your Google Sheet first.'); return; }
+
+  const dateVal    = document.getElementById('expDateInput').value;
+  const person     = document.getElementById('expPersonSelect').value;
+  const rawProject = document.getElementById('expProjectSelect').value;
+  const project    = rawProject === '__other__'
+    ? document.getElementById('expOtherProjectInput').value.trim()
+    : rawProject;
+  const amount     = parseFloat(document.getElementById('expAmount').value);
+  const notes      = document.getElementById('expNotes').value.trim();
+
+  if (!dateVal)               { showToast('Please select a date.'); return; }
+  if (!person)                { showToast('Please select who is logging.'); return; }
+  if (!project)               { showToast('Please select a project.'); return; }
+  if (rawProject === '__other__' && !project) { showToast('Please describe the project.'); return; }
+  if (!amount || amount <= 0) { showToast('Please enter a valid amount.'); return; }
+
+  const [y, m, d]   = dateVal.split('-');
+  const dateDisplay = new Date(y, m-1, d).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+
+  const logBtn = document.querySelector('.btn-primary[onclick="addExpense()"]');
+  logBtn.textContent = 'Saving...'; logBtn.disabled = true;
+
+  try {
+    const params = new URLSearchParams({
+      action: 'addExpense', date: dateDisplay, person, project, amount, notes
+    });
+    const res    = await fetch(SHEET_URL + '?' + params.toString(), { method: 'GET' });
+    const result = await res.json();
+    if (result.status === 'ok') {
+      showToast('Expense logged ✓');
+      clearExpenseForm();
+      await loadExpenses();
+    } else {
+      showToast('Error: ' + result.message);
+    }
+  } catch (err) {
+    showToast('Could not save expense.');
+  } finally {
+    logBtn.textContent = 'Log Expense →'; logBtn.disabled = false;
+  }
+}
+
+function clearExpenseForm() {
+  document.getElementById('expDateInput').value    = todayISO();
+  document.getElementById('expPersonSelect').value = '';
+  document.getElementById('expProjectSelect').value = '';
+  document.getElementById('expOtherProjectInput').value = '';
+  document.getElementById('expOtherProjectWrap').classList.remove('visible');
+  document.getElementById('expAmount').value = '';
+  document.getElementById('expNotes').value  = '';
+}
+
+function renderExpenseTable() {
+  const wrap       = document.getElementById('expenseTableWrap');
+  const summaryBar = document.getElementById('expenseSummaryBar');
+
+  if (expenses.length === 0) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">$</div>No expenses yet — log your first expense above.</div>`;
+    summaryBar.style.display = 'none';
+    return;
+  }
+
+  summaryBar.style.display = 'flex';
+  const total = expenses.reduce((s, e) => s + e.amount, 0);
+  document.getElementById('totalExpenseAmt').textContent     = '$' + total.toFixed(2);
+  document.getElementById('totalExpenseEntries').textContent = expenses.length;
+
+  const tbody = expenses.map(e => {
+    if (expEditingId === e.id) return buildExpenseEditRow(e);
+    return `
+      <tr class="data-row" onclick="openExpenseEditRow('${e.id}')">
+        <td class="td-date">${e.date}</td>
+        <td class="td-person">${e.person || '<span style="opacity:0.35">—</span>'}</td>
+        <td class="td-project"><span class="project-dot" style="background:${getProjectColor(e.project)}"></span>${e.project}</td>
+        <td class="td-hours" style="color:var(--success)">$${e.amount.toFixed(2)}</td>
+        <td class="td-notes">${e.notes || '<span style="opacity:0.35">—</span>'}</td>
+      </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div class="log-table-wrap">
+    <table>
+      <thead><tr><th>Date</th><th>Who</th><th>Project</th><th>Amount</th><th>Description</th></tr></thead>
+      <tbody>${tbody}</tbody>
+    </table>
+    </div>`;
+}
+
+function buildExpenseEditRow(e) {
+  const projOptions = projects.map(p =>
+    `<option value="${p}" ${p === e.project ? 'selected' : ''}>${p}</option>`
+  ).join('');
+  const isOther  = !projects.includes(e.project);
+  const otherSel = isOther ? 'selected' : '';
+  const otherStyle = isOther ? '' : 'display:none;margin-top:4px;';
+
+  return `
+    <tr class="edit-row">
+      <td>
+        <div class="edit-cell-inner">
+          <label>Date</label>
+          <input type="date" id="exp-edit-date" value="${dateToISO(e.date)}">
+        </div>
+      </td>
+      <td>
+        <div class="edit-cell-inner">
+          <label>Who</label>
+          <div class="select-arrow-wrap">
+            <select id="exp-edit-person">
+              <option value="" ${!e.person?'selected':''}>—</option>
+              <option value="CH" ${e.person==='CH'?'selected':''}>CH</option>
+              <option value="GF" ${e.person==='GF'?'selected':''}>GF</option>
+            </select>
+          </div>
+        </div>
+      </td>
+      <td>
+        <div class="edit-cell-inner">
+          <label>Project</label>
+          <div class="select-arrow-wrap">
+            <select id="exp-edit-project" onchange="toggleExpEditOther()">
+              ${projOptions}
+              <option value="__other__" ${otherSel}>Other...</option>
+            </select>
+          </div>
+          <input type="text" id="exp-edit-other-project" placeholder="Describe project..."
+            style="${otherStyle}" value="${isOther ? e.project : ''}">
+        </div>
+      </td>
+      <td>
+        <div class="edit-cell-inner">
+          <label>Amount ($)</label>
+          <input type="number" id="exp-edit-amount" min="0" step="0.01" value="${e.amount.toFixed(2)}">
+        </div>
+      </td>
+      <td>
+        <div class="edit-cell-inner">
+          <label>Description</label>
+          <textarea id="exp-edit-notes">${e.notes || ''}</textarea>
+          <div class="edit-actions">
+            <button class="btn-save" style="background:var(--success);border-color:var(--success);" onclick="saveExpenseEdit('${e.id}')">Save</button>
+            <button class="btn-cancel-edit" onclick="cancelExpenseEdit()">Cancel</button>
+            <span class="edit-hint">esc to cancel</span>
+          </div>
+        </div>
+      </td>
+    </tr>`;
+}
+
+function toggleExpEditOther() {
+  const sel   = document.getElementById('exp-edit-project');
+  const input = document.getElementById('exp-edit-other-project');
+  if (!sel || !input) return;
+  const isOther = sel.value === '__other__';
+  input.style.display   = isOther ? '' : 'none';
+  input.style.marginTop = isOther ? '4px' : '';
+  if (isOther) input.focus();
+  else input.value = '';
+}
+
+function openExpenseEditRow(id) {
+  if (expEditingId === id) return;
+  expEditingId = id;
+  renderExpenseTable();
+  document.addEventListener('keydown', onExpenseEditKeydown);
+}
+
+function cancelExpenseEdit() {
+  expEditingId = null;
+  document.removeEventListener('keydown', onExpenseEditKeydown);
+  renderExpenseTable();
+}
+
+function onExpenseEditKeydown(e) {
+  if (e.key === 'Escape') cancelExpenseEdit();
+}
+
+async function saveExpenseEdit(id) {
+  const dateVal    = document.getElementById('exp-edit-date').value;
+  const person     = document.getElementById('exp-edit-person').value;
+  const rawProject = document.getElementById('exp-edit-project').value;
+  const project    = rawProject === '__other__'
+    ? document.getElementById('exp-edit-other-project').value.trim()
+    : rawProject;
+  const amount     = parseFloat(document.getElementById('exp-edit-amount').value);
+  const notes      = document.getElementById('exp-edit-notes').value.trim();
+
+  if (!dateVal)               { showToast('Please select a date.'); return; }
+  if (!project)               { showToast('Please select a project.'); return; }
+  if (!amount || amount <= 0) { showToast('Please enter a valid amount.'); return; }
+
+  const [y, m, d]   = dateVal.split('-');
+  const dateDisplay = new Date(y, m-1, d).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+
+  const saveBtn = document.querySelector('.edit-row .btn-save');
+  if (saveBtn) { saveBtn.textContent = 'Saving...'; saveBtn.disabled = true; }
+
+  try {
+    const params = new URLSearchParams({
+      action: 'updateExpense', id, date: dateDisplay, person, project, amount, notes
+    });
+    const res    = await fetch(SHEET_URL + '?' + params.toString(), { method: 'GET' });
+    const result = await res.json();
+    if (result.status === 'ok') {
+      showToast('Expense updated ✓');
+      expEditingId = null;
+      document.removeEventListener('keydown', onExpenseEditKeydown);
+      await loadExpenses();
+    } else {
+      showToast('Error: ' + result.message);
+      if (saveBtn) { saveBtn.textContent = 'Save'; saveBtn.disabled = false; }
+    }
+  } catch (err) {
+    showToast('Could not save. Check your connection.');
+    if (saveBtn) { saveBtn.textContent = 'Save'; saveBtn.disabled = false; }
+  }
+}
 
 // ── Toast ─────────────────────────────────────────────────────
 let toastTimer;
