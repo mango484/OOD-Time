@@ -1925,7 +1925,9 @@ function getSummaryDateRange() {
     const from = document.getElementById('summaryFrom').value;
     const to   = document.getElementById('summaryTo').value;
     if (!from || !to) return null;
-    return { start: new Date(from + 'T00:00:00'), end: new Date(to + 'T23:59:59') };
+    const [fy, fm, fd] = from.split('-').map(Number);
+    const [ty, tm, td] = to.split('-').map(Number);
+    return { start: new Date(fy, fm - 1, fd), end: new Date(ty, tm - 1, td) };
   }
 }
 
@@ -1940,9 +1942,22 @@ function renderSummary() {
   document.getElementById('summaryPeriodDisplay').textContent = `${fmt(start)} – ${fmt(end)}`;
 
   // Filter entries and expenses to range
-  const inRange = d => {
-    const parsed = new Date(d);
-    return !isNaN(parsed) && parsed >= start && parsed <= end;
+  const inRange = dateStr => {
+    // Handle various formats: "May 1, 2026", "5/1/2026", "2026-05-01", Date objects
+    let parsed;
+    if (dateStr instanceof Date) {
+      parsed = dateStr;
+    } else {
+      parsed = new Date(dateStr);
+      // If invalid, try stripping ordinals and re-parsing
+      if (isNaN(parsed)) {
+        parsed = new Date(String(dateStr).replace(/(\d+)(st|nd|rd|th)/, '$1'));
+      }
+    }
+    if (isNaN(parsed)) return false;
+    // Compare date only (ignore time)
+    const d = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+    return d >= start && d <= end;
   };
 
   const filteredEntries  = entries.filter(e  => inRange(e.date));
