@@ -410,6 +410,110 @@ tbody td {
 }
 .empty-state .empty-icon { font-size: 2rem; margin-bottom: 12px; opacity: 0.4; }
 
+/* Summary modal */
+.summary-modal {
+  width: 620px;
+  max-width: 95vw;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.summary-controls {
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.summary-mode-row {
+  display: flex;
+  gap: 8px;
+}
+.summary-mode-btn {
+  background: none;
+  border: 1.5px solid var(--line);
+  color: var(--muted);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.summary-mode-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-light);
+}
+.summary-range-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.summary-range-row input { width: 140px; }
+.summary-period-display {
+  font-size: 0.68rem;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  margin-bottom: 4px;
+}
+.summary-table th {
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 500;
+}
+.summary-table th:not(:first-child) { text-align: right; }
+.summary-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.summary-table td:not(:first-child) { text-align: right; }
+.summary-table tr:last-child td { border-bottom: none; }
+.summary-table tbody tr:hover td { background: var(--accent-light); }
+.summary-project-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.summary-total-row td {
+  border-top: 2px solid var(--line);
+  border-bottom: none !important;
+  font-weight: 700;
+  padding-top: 12px;
+}
+.summary-val-hours { color: var(--ink); }
+.summary-val-billable { color: var(--accent); }
+.summary-val-expenses { color: var(--success); }
+.summary-val-total { color: var(--accent); font-weight: 700; }
+.summary-empty {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.8rem;
+  padding: 28px 0;
+  letter-spacing: 0.04em;
+}
+.summary-grand {
+  display: flex;
+  gap: 24px;
+  padding: 14px 10px 4px;
+  border-top: 2px solid var(--accent);
+  margin-top: 8px;
+}
+.summary-grand-item { display: flex; flex-direction: column; gap: 3px; }
+.summary-grand-label { font-size: 0.58rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.summary-grand-value { font-size: 1.1rem; font-weight: 700; }
+
 /* Toast */
 .toast {
   position: fixed;
@@ -683,7 +787,10 @@ tr.edit-row td:first-child {
 <div class="container">
   <header>
     <div class="brand">OOD <span>Time</span></div>
-    <div class="date-stamp" id="dateStamp"></div>
+    <div style="display:flex;align-items:center;gap:16px;">
+      <button class="btn-ghost" onclick="openSummary()" style="font-size:0.72rem;letter-spacing:0.08em;">⊞ Summary</button>
+      <div class="date-stamp" id="dateStamp"></div>
+    </div>
   </header>
 
   <!-- ENTRY FORM -->
@@ -895,11 +1002,40 @@ tr.edit-row td:first-child {
   </div>
 </div>
 
+<!-- SUMMARY MODAL -->
+<div class="modal-backdrop" id="summaryModal">
+  <div class="modal summary-modal">
+    <h3>Summary</h3>
+
+    <!-- Date range controls -->
+    <div class="summary-controls">
+      <div class="summary-mode-row">
+        <button class="summary-mode-btn active" id="btnCurrentMonth" onclick="setSummaryMode('month')">This Month</button>
+        <button class="summary-mode-btn" id="btnCustomRange" onclick="setSummaryMode('custom')">Custom Range</button>
+      </div>
+      <div class="summary-range-row" id="summaryRangeRow" style="display:none;">
+        <input type="date" id="summaryFrom">
+        <span style="color:var(--muted);font-size:0.8rem;">→</span>
+        <input type="date" id="summaryTo">
+        <button class="btn-primary" style="padding:6px 14px;font-size:0.7rem;" onclick="renderSummary()">Go</button>
+      </div>
+      <div class="summary-period-display" id="summaryPeriodDisplay"></div>
+    </div>
+
+    <!-- Summary table -->
+    <div id="summaryContent"></div>
+
+    <div class="modal-actions" style="margin-top:20px;">
+      <button class="btn-ghost" onclick="closeSummary()">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
 // ── Config ───────────────────────────────────────────────────
-let SHEET_URL = 'https://script.google.com/macros/s/AKfycbxwdfl2s_P70PA3oGOa49GPK_b0jv37_8HIWQBQQfkP1w6xBGM_TCyzhF4USxB-5bEf/exec';
+let SHEET_URL = 'https://script.google.com/macros/s/AKfycbysL5G854DKmpQAilKk9Xkks14KaXZxVW3T8RbKZ7rVincQY_JKAKLTMg0qMcXn1H9Scg/exec';
 let entries  = [];
 let projects = [];
 const PROJECT_COLORS = ['#c84b2f','#3a7d4b','#2f5fc8','#8b4fc8','#c87f2f','#2f9bc8','#c82f7f'];
@@ -1758,6 +1894,143 @@ async function saveExpenseEdit(id) {
     if (saveBtn) { saveBtn.textContent = 'Save'; saveBtn.disabled = false; }
   }
 }
+
+// ── Summary ───────────────────────────────────────────────────
+let summaryMode = 'month';
+
+function openSummary() {
+  document.getElementById('summaryModal').classList.add('open');
+  renderSummary();
+}
+
+function closeSummary() {
+  document.getElementById('summaryModal').classList.remove('open');
+}
+
+function setSummaryMode(mode) {
+  summaryMode = mode;
+  document.getElementById('btnCurrentMonth').classList.toggle('active', mode === 'month');
+  document.getElementById('btnCustomRange').classList.toggle('active', mode === 'custom');
+  document.getElementById('summaryRangeRow').style.display = mode === 'custom' ? 'flex' : 'none';
+  if (mode === 'month') renderSummary();
+}
+
+function getSummaryDateRange() {
+  if (summaryMode === 'month') {
+    const now   = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end   = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { start, end };
+  } else {
+    const from = document.getElementById('summaryFrom').value;
+    const to   = document.getElementById('summaryTo').value;
+    if (!from || !to) return null;
+    return { start: new Date(from + 'T00:00:00'), end: new Date(to + 'T23:59:59') };
+  }
+}
+
+function renderSummary() {
+  const range = getSummaryDateRange();
+  if (!range) { showToast('Please select a date range.'); return; }
+
+  const { start, end } = range;
+
+  // Period label
+  const fmt = d => d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  document.getElementById('summaryPeriodDisplay').textContent = `${fmt(start)} – ${fmt(end)}`;
+
+  // Filter entries and expenses to range
+  const inRange = d => {
+    const parsed = new Date(d);
+    return !isNaN(parsed) && parsed >= start && parsed <= end;
+  };
+
+  const filteredEntries  = entries.filter(e  => inRange(e.date));
+  const filteredExpenses = expenses.filter(e => inRange(e.date));
+
+  // Aggregate by project
+  const projectMap = {};
+
+  filteredEntries.forEach(e => {
+    if (!projectMap[e.project]) projectMap[e.project] = { hours: 0, billable: 0, expenses: 0 };
+    projectMap[e.project].hours    += e.hours    || 0;
+    projectMap[e.project].billable += e.billable || 0;
+  });
+
+  filteredExpenses.forEach(e => {
+    if (!projectMap[e.project]) projectMap[e.project] = { hours: 0, billable: 0, expenses: 0 };
+    projectMap[e.project].expenses += parseFloat(e.amount) || 0;
+  });
+
+  const projectNames = Object.keys(projectMap).sort();
+
+  if (projectNames.length === 0) {
+    document.getElementById('summaryContent').innerHTML =
+      `<div class="summary-empty">No data for this period.</div>`;
+    return;
+  }
+
+  // Totals
+  let grandHours = 0, grandBillable = 0, grandExpenses = 0;
+  projectNames.forEach(p => {
+    grandHours    += projectMap[p].hours;
+    grandBillable += projectMap[p].billable;
+    grandExpenses += projectMap[p].expenses;
+  });
+
+  const rows = projectNames.map(p => {
+    const d = projectMap[p];
+    const total = d.billable + d.expenses;
+    return `
+      <tr>
+        <td>
+          <span class="summary-project-name">
+            <span class="project-dot" style="background:${getProjectColor(p)}"></span>${p}
+          </span>
+        </td>
+        <td class="summary-val-hours">${d.hours % 1 === 0 ? d.hours : d.hours.toFixed(2)}h</td>
+        <td class="summary-val-billable">$${d.billable.toFixed(2)}</td>
+        <td class="summary-val-expenses">${d.expenses > 0 ? '$' + d.expenses.toFixed(2) : '—'}</td>
+        <td class="summary-val-total">$${total.toFixed(2)}</td>
+      </tr>`;
+  }).join('');
+
+  document.getElementById('summaryContent').innerHTML = `
+    <table class="summary-table">
+      <thead>
+        <tr>
+          <th>Project</th>
+          <th>Hours</th>
+          <th>Billable</th>
+          <th>Expenses</th>
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="summary-grand">
+      <div class="summary-grand-item">
+        <span class="summary-grand-label">Total Hours</span>
+        <span class="summary-grand-value">${grandHours % 1 === 0 ? grandHours : grandHours.toFixed(2)}h</span>
+      </div>
+      <div class="summary-grand-item">
+        <span class="summary-grand-label">Total Billable</span>
+        <span class="summary-grand-value summary-val-billable">$${grandBillable.toFixed(2)}</span>
+      </div>
+      <div class="summary-grand-item">
+        <span class="summary-grand-label">Total Expenses</span>
+        <span class="summary-grand-value summary-val-expenses">$${grandExpenses.toFixed(2)}</span>
+      </div>
+      <div class="summary-grand-item">
+        <span class="summary-grand-label">Grand Total</span>
+        <span class="summary-grand-value summary-val-total">$${(grandBillable + grandExpenses).toFixed(2)}</span>
+      </div>
+    </div>`;
+}
+
+document.getElementById('summaryModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeSummary();
+});
 
 // ── Toast ─────────────────────────────────────────────────────
 let toastTimer;
