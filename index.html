@@ -851,14 +851,23 @@ tr.edit-row td:first-child {
         </div>
       </div>
 
+      <label for="phaseSelect">Phase</label>
+      <div class="select-arrow-wrap">
+        <select id="phaseSelect">
+          <option value="">— select phase —</option>
+          <option value="PRE">PRE — Preproject</option>
+          <option value="MP">MP — Masterplan</option>
+          <option value="SD">SD — Schematic Design</option>
+          <option value="EST">EST — Cost Estimate</option>
+          <option value="DD">DD — Design Development</option>
+          <option value="CD">CD — Construction Documents</option>
+          <option value="BID">BID — Bidding</option>
+          <option value="CA">CA — Construction Observation</option>
+        </select>
+      </div>
+
       <label for="notesInput">Notes</label>
       <textarea id="notesInput" placeholder="What did you work on?"></textarea>
-
-      <label for="rateInput">Rate ($/hr)</label>
-      <div class="time-input-wrap">
-        <span class="time-unit" style="margin-right:2px;">$</span>
-        <input type="number" id="rateInput" min="0" step="1" value="150" style="width:100px;">
-      </div>
 
       <div class="form-actions">
         <button class="btn-ghost" onclick="clearForm()">Clear</button>
@@ -1035,10 +1044,11 @@ tr.edit-row td:first-child {
 
 <script>
 // ── Config ───────────────────────────────────────────────────
-let SHEET_URL = 'https://script.google.com/macros/s/AKfycbzFjOloIpmEkFV3j1rbX2oQqCZ5UdNnnieEJT67nwTXgpy2J8EEUk5YY1e8vIKspoI/exec';
+let SHEET_URL = 'https://script.google.com/macros/s/AKfycbxwdfl2s_P70PA3oGOa49GPK_b0jv37_8HIWQBQQfkP1w6xBGM_TCyzhF4USxB-5bEf/exec';
 let entries  = [];
 let projects = [];
 const PROJECT_COLORS = ['#c84b2f','#3a7d4b','#2f5fc8','#8b4fc8','#c87f2f','#2f9bc8','#c82f7f'];
+const DEFAULT_RATE = 150; // rate is no longer entered manually; applied to all new entries
 
 let useStartEnd = false;
 
@@ -1154,8 +1164,9 @@ async function loadEntries() {
         person:   e.person || '',
         hours:    parseFloat(e.hours),
         project:  e.project,
+        phase:    e.phase || '',
         notes:    e.notes || '',
-        rate:     parseFloat(e.rate) || 150,
+        rate:     parseFloat(e.rate) || DEFAULT_RATE,
         billable: parseFloat(e.billable) || 0
       }));
       renderTable();
@@ -1176,8 +1187,9 @@ async function postEntry(entry) {
     person:  entry.person || '',
     hours:   entry.hours,
     project: entry.project,
+    phase:   entry.phase || '',
     notes:   entry.notes || '',
-    rate:    entry.rate || 150
+    rate:    entry.rate || DEFAULT_RATE
   });
   const res = await fetch(SHEET_URL + '?' + params.toString(), { method: 'GET' });
   return await res.json();
@@ -1218,8 +1230,9 @@ async function addEntry() {
   const project = rawProject === '__other__'
     ? document.getElementById('otherProjectInput').value.trim()
     : rawProject;
+  const phase   = document.getElementById('phaseSelect').value;
   const notes   = document.getElementById('notesInput').value.trim();
-  const rate    = parseFloat(document.getElementById('rateInput').value) || 150;
+  const rate    = DEFAULT_RATE;
 
   if (rawProject === '__other__' && !project) { showToast('Please describe the project.'); return; }
 
@@ -1246,7 +1259,7 @@ async function addEntry() {
   logBtn.disabled = true;
 
   try {
-    const result = await postEntry({ date: dateDisplay, person, hours, project, notes, rate });
+    const result = await postEntry({ date: dateDisplay, person, hours, project, phase, notes, rate });
     if (result.status === 'ok') {
       showToast('Entry logged to Google Sheets ✓');
       clearForm();
@@ -1269,8 +1282,8 @@ function clearForm() {
   document.getElementById('projectSelect').value = '';
   document.getElementById('otherProjectInput').value = '';
   document.getElementById('otherProjectWrap').classList.remove('visible');
+  document.getElementById('phaseSelect').value  = '';
   document.getElementById('notesInput').value   = '';
-  document.getElementById('rateInput').value    = '150';
   // also clear start/end
   document.getElementById('startTime').value = '';
   document.getElementById('endTime').value   = '';
@@ -1302,8 +1315,8 @@ function showTableLoading() {
   const wrap = document.getElementById('tableWrap');
   wrap.innerHTML = `
     <div class="log-table-wrap">
-    <table><thead><tr><th>Date</th><th>Who</th><th>Hours</th><th>Project</th><th>Notes</th></tr></thead>
-    <tbody><tr class="loading-row"><td colspan="5">Loading from Google Sheets...</td></tr></tbody>
+    <table><thead><tr><th>Date</th><th>Who</th><th>Hours</th><th>Project</th><th>Phase</th><th>Notes</th><th>Rate</th><th>Billable</th></tr></thead>
+    <tbody><tr class="loading-row"><td colspan="8">Loading from Google Sheets...</td></tr></tbody>
     </table></div>`;
 }
 
@@ -1351,6 +1364,7 @@ function renderTable() {
         <td class="td-person">${e.person || '<span style="opacity:0.35">—</span>'}</td>
         <td class="td-hours">${e.hours % 1 === 0 ? e.hours : e.hours.toFixed(2)}h</td>
         <td class="td-project"><span class="project-dot" style="background:${getProjectColor(e.project)}"></span>${e.project}</td>
+        <td class="td-phase" style="color:var(--muted);white-space:nowrap;">${e.phase || '<span style="opacity:0.35">—</span>'}</td>
         <td class="td-notes">${e.notes || '<span style="opacity:0.35">—</span>'}</td>
         <td class="td-hours" style="color:var(--muted);font-size:0.78rem;">$${e.rate.toFixed(0)}/hr</td>
         <td class="td-hours" style="color:var(--accent);">$${e.billable.toFixed(2)}</td>
@@ -1360,7 +1374,7 @@ function renderTable() {
   wrap.innerHTML = `
     <div class="log-table-wrap">
     <table>
-      <thead><tr><th>Date</th><th>Who</th><th>Hours</th><th>Project</th><th>Notes</th><th>Rate</th><th>Billable</th></tr></thead>
+      <thead><tr><th>Date</th><th>Who</th><th>Hours</th><th>Project</th><th>Phase</th><th>Notes</th><th>Rate</th><th>Billable</th></tr></thead>
       <tbody>${tbody}</tbody>
     </table>
     </div>`;
@@ -1416,14 +1430,26 @@ function buildEditRow(e) {
       </td>
       <td>
         <div class="edit-cell-inner">
-          <label>Notes</label>
-          <textarea id="edit-notes">${e.notes || ''}</textarea>
+          <label>Phase</label>
+          <div class="select-arrow-wrap">
+            <select id="edit-phase">
+              <option value="" ${!e.phase ? 'selected':''}>— select phase —</option>
+              <option value="PRE" ${e.phase==='PRE'?'selected':''}>PRE — Preproject</option>
+              <option value="MP" ${e.phase==='MP'?'selected':''}>MP — Masterplan</option>
+              <option value="SD" ${e.phase==='SD'?'selected':''}>SD — Schematic Design</option>
+              <option value="EST" ${e.phase==='EST'?'selected':''}>EST — Cost Estimate</option>
+              <option value="DD" ${e.phase==='DD'?'selected':''}>DD — Design Development</option>
+              <option value="CD" ${e.phase==='CD'?'selected':''}>CD — Construction Documents</option>
+              <option value="BID" ${e.phase==='BID'?'selected':''}>BID — Bidding</option>
+              <option value="CA" ${e.phase==='CA'?'selected':''}>CA — Construction Observation</option>
+            </select>
+          </div>
         </div>
       </td>
       <td>
         <div class="edit-cell-inner">
-          <label>Rate ($/hr)</label>
-          <input type="number" id="edit-rate" min="0" step="1" value="${e.rate || 150}">
+          <label>Notes</label>
+          <textarea id="edit-notes">${e.notes || ''}</textarea>
         </div>
       </td>
       <td>
@@ -1484,8 +1510,11 @@ async function saveEdit(id) {
   const project    = rawProject === '__other__'
     ? document.getElementById('edit-other-project').value.trim()
     : rawProject;
+  const phase      = document.getElementById('edit-phase').value;
   const notes      = document.getElementById('edit-notes').value.trim();
-  const rate       = parseFloat(document.getElementById('edit-rate').value) || 150;
+  // rate is no longer edited directly — preserve whatever this entry already had
+  const original   = entries.find(x => x.id === id);
+  const rate       = (original && original.rate) || DEFAULT_RATE;
 
   if (!dateVal)              { showToast('Please select a date.'); return; }
   if (!hours || hours <= 0)  { showToast('Please enter valid hours.'); return; }
@@ -1500,7 +1529,7 @@ async function saveEdit(id) {
   try {
     const params = new URLSearchParams({
       action: 'updateEntry',
-      id, date: dateDisplay, person, hours, project, notes, rate
+      id, date: dateDisplay, person, hours, project, phase, notes, rate
     });
     const res    = await fetch(SHEET_URL + '?' + params.toString(), { method: 'GET' });
     const result = await res.json();
