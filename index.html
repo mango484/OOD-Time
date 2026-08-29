@@ -656,11 +656,11 @@ tbody td {
   display: inline-block;
 }
 .collapse-chevron.collapsed { transform: rotate(-90deg); }
-#logBody {
+.collapsible-body {
   overflow: hidden;
   transition: opacity 0.2s;
 }
-#logBody.collapsed { display: none; }
+.collapsible-body.collapsed { display: none; }
 .log-period-label {
   font-size: 0.65rem;
   letter-spacing: 0.08em;
@@ -892,10 +892,10 @@ tr.edit-row td:first-child {
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
         <button class="btn-export" id="syncBtn" onclick="event.stopPropagation();loadEntries();">↻ Refresh</button>
-        <span class="collapse-chevron" id="logChevron">▾</span>
+        <span class="collapse-chevron collapsed" id="logChevron">▾</span>
       </div>
     </div>
-    <div id="logBody">
+    <div id="logBody" class="collapsible-body collapsed">
       <div id="tableWrap">
         <div class="empty-state">
           <div class="empty-icon">◷</div>
@@ -925,9 +925,12 @@ tr.edit-row td:first-child {
 
   <!-- EXPENSES -->
   <div class="log-section" style="margin-top:56px;">
-    <div class="log-header">
+    <div class="log-header collapsible-header" onclick="toggleExpenseLog()" style="cursor:pointer;">
       <div class="log-title" style="color:var(--success)">Expenses</div>
-      <button class="btn-export" onclick="loadExpenses()" style="background:var(--success);border-color:var(--success);">↻ Refresh</button>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn-export" onclick="event.stopPropagation();loadExpenses()" style="background:var(--success);border-color:var(--success);">↻ Refresh</button>
+        <span class="collapse-chevron collapsed" id="expenseLogChevron">▾</span>
+      </div>
     </div>
 
     <!-- Expense entry form -->
@@ -979,21 +982,23 @@ tr.edit-row td:first-child {
       </div>
     </div>
 
-    <!-- Expense log table -->
-    <div id="expenseTableWrap">
-      <div class="empty-state">
-        <div class="empty-icon">$</div>
-        No expenses yet — log your first expense above.
+    <!-- Expense log table (collapsible) -->
+    <div id="expenseLogBody" class="collapsible-body collapsed">
+      <div id="expenseTableWrap">
+        <div class="empty-state">
+          <div class="empty-icon">$</div>
+          No expenses yet — log your first expense above.
+        </div>
       </div>
-    </div>
-    <div class="summary-bar" id="expenseSummaryBar" style="display:none;">
-      <div class="summary-item">
-        <span class="summary-label">Total Expenses</span>
-        <span class="summary-value" id="totalExpenseAmt" style="color:var(--success)">$0</span>
-      </div>
-      <div class="summary-item">
-        <span class="summary-label">Entries</span>
-        <span class="summary-value" id="totalExpenseEntries" style="color:var(--success)">0</span>
+      <div class="summary-bar" id="expenseSummaryBar" style="display:none;">
+        <div class="summary-item">
+          <span class="summary-label">Total Expenses</span>
+          <span class="summary-value" id="totalExpenseAmt" style="color:var(--success)">$0</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Entries</span>
+          <span class="summary-value" id="totalExpenseEntries" style="color:var(--success)">0</span>
+        </div>
       </div>
     </div>
   </div>
@@ -1339,12 +1344,20 @@ function getProjectColor(name) {
 
 // ── Table ─────────────────────────────────────────────────────
 let editingId  = null;
-let logExpanded = true;
+let logExpanded = false;
 
 function toggleLog() {
   logExpanded = !logExpanded;
   document.getElementById('logBody').classList.toggle('collapsed', !logExpanded);
   document.getElementById('logChevron').classList.toggle('collapsed', !logExpanded);
+}
+
+let expenseLogExpanded = false;
+
+function toggleExpenseLog() {
+  expenseLogExpanded = !expenseLogExpanded;
+  document.getElementById('expenseLogBody').classList.toggle('collapsed', !expenseLogExpanded);
+  document.getElementById('expenseLogChevron').classList.toggle('collapsed', !expenseLogExpanded);
 }
 
 function showTableLoading() {
@@ -2218,13 +2231,12 @@ function renderSummary() {
   const projectMap = {};
 
   filteredEntries.forEach(e => {
-    if (!projectMap[e.project]) projectMap[e.project] = { hours: 0, billable: 0, expenses: 0 };
-    projectMap[e.project].hours    += e.hours    || 0;
-    projectMap[e.project].billable += e.billable || 0;
+    if (!projectMap[e.project]) projectMap[e.project] = { hours: 0, expenses: 0 };
+    projectMap[e.project].hours += e.hours || 0;
   });
 
   filteredExpenses.forEach(e => {
-    if (!projectMap[e.project]) projectMap[e.project] = { hours: 0, billable: 0, expenses: 0 };
+    if (!projectMap[e.project]) projectMap[e.project] = { hours: 0, expenses: 0 };
     projectMap[e.project].expenses += parseFloat(e.amount) || 0;
   });
 
@@ -2237,16 +2249,14 @@ function renderSummary() {
   }
 
   // Totals
-  let grandHours = 0, grandBillable = 0, grandExpenses = 0;
+  let grandHours = 0, grandExpenses = 0;
   projectNames.forEach(p => {
     grandHours    += projectMap[p].hours;
-    grandBillable += projectMap[p].billable;
     grandExpenses += projectMap[p].expenses;
   });
 
   const rows = projectNames.map(p => {
     const d = projectMap[p];
-    const total = d.billable + d.expenses;
     return `
       <tr>
         <td>
@@ -2255,9 +2265,7 @@ function renderSummary() {
           </span>
         </td>
         <td class="summary-val-hours">${d.hours % 1 === 0 ? d.hours : d.hours.toFixed(2)}h</td>
-        <td class="summary-val-billable">$${d.billable.toFixed(2)}</td>
         <td class="summary-val-expenses">${d.expenses > 0 ? '$' + d.expenses.toFixed(2) : '—'}</td>
-        <td class="summary-val-total">$${total.toFixed(2)}</td>
       </tr>`;
   }).join('');
 
@@ -2267,9 +2275,7 @@ function renderSummary() {
         <tr>
           <th>Project</th>
           <th>Hours</th>
-          <th>Billable</th>
           <th>Expenses</th>
-          <th>Total</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -2280,16 +2286,8 @@ function renderSummary() {
         <span class="summary-grand-value">${grandHours % 1 === 0 ? grandHours : grandHours.toFixed(2)}h</span>
       </div>
       <div class="summary-grand-item">
-        <span class="summary-grand-label">Total Billable</span>
-        <span class="summary-grand-value summary-val-billable">$${grandBillable.toFixed(2)}</span>
-      </div>
-      <div class="summary-grand-item">
         <span class="summary-grand-label">Total Expenses</span>
         <span class="summary-grand-value summary-val-expenses">$${grandExpenses.toFixed(2)}</span>
-      </div>
-      <div class="summary-grand-item">
-        <span class="summary-grand-label">Grand Total</span>
-        <span class="summary-grand-value summary-val-total">$${(grandBillable + grandExpenses).toFixed(2)}</span>
       </div>
     </div>`;
 }
