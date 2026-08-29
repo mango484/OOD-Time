@@ -801,12 +801,18 @@ tr.edit-row td:first-child {
       <input type="date" id="dateInput">
 
       <label for="personSelect">Who</label>
-      <div class="select-arrow-wrap">
-        <select id="personSelect">
-          <option value="">— select —</option>
-          <option value="CH">CH</option>
-          <option value="GF">GF</option>
-        </select>
+      <div>
+        <div class="project-wrap">
+          <div class="select-arrow-wrap" style="flex:1">
+            <select id="personSelect" onchange="handlePersonChange()">
+              <option value="">— select —</option>
+            </select>
+          </div>
+          <button class="btn-ghost" onclick="openPersonModal()">+ New</button>
+        </div>
+        <div class="other-project-input" id="otherPersonWrap">
+          <input type="text" id="otherPersonInput" placeholder="Enter name...">
+        </div>
       </div>
 
       <!-- Hours / Start+End toggle -->
@@ -933,12 +939,15 @@ tr.edit-row td:first-child {
         <input type="date" id="expDateInput">
 
         <label for="expPersonSelect">Who</label>
-        <div class="select-arrow-wrap">
-          <select id="expPersonSelect">
-            <option value="">— select —</option>
-            <option value="CH">CH</option>
-            <option value="GF">GF</option>
-          </select>
+        <div>
+          <div class="select-arrow-wrap">
+            <select id="expPersonSelect" onchange="handleExpPersonChange()">
+              <option value="">— select —</option>
+            </select>
+          </div>
+          <div class="other-project-input" id="expOtherPersonWrap">
+            <input type="text" id="expOtherPersonInput" placeholder="Enter name...">
+          </div>
         </div>
 
         <label for="expProjectSelect">Project</label>
@@ -1011,6 +1020,26 @@ tr.edit-row td:first-child {
   </div>
 </div>
 
+<!-- MANAGE PEOPLE MODAL -->
+<div class="modal-backdrop" id="personModal">
+  <div class="modal" style="width:420px">
+    <h3>Manage People</h3>
+
+    <!-- existing people list -->
+    <div id="personList" style="margin-bottom:18px;max-height:240px;overflow-y:auto;"></div>
+
+    <!-- add new -->
+    <div style="display:flex;gap:8px;margin-bottom:16px;">
+      <input type="text" id="newPersonName" placeholder="New name or initials..." maxlength="40" style="flex:1">
+      <button class="btn-primary" style="padding:8px 16px;white-space:nowrap" onclick="addPerson()">+ Add</button>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closePersonModal()">Done</button>
+    </div>
+  </div>
+</div>
+
 <!-- SUMMARY MODAL -->
 <div class="modal-backdrop" id="summaryModal">
   <div class="modal summary-modal">
@@ -1047,6 +1076,7 @@ tr.edit-row td:first-child {
 let SHEET_URL = 'https://script.google.com/macros/s/AKfycbxwdfl2s_P70PA3oGOa49GPK_b0jv37_8HIWQBQQfkP1w6xBGM_TCyzhF4USxB-5bEf/exec';
 let entries  = [];
 let projects = [];
+let people   = [];
 const PROJECT_COLORS = ['#c84b2f','#3a7d4b','#2f5fc8','#8b4fc8','#c87f2f','#2f9bc8','#c82f7f'];
 const DEFAULT_RATE = 150; // rate is no longer entered manually; applied to all new entries
 
@@ -1059,7 +1089,7 @@ document.getElementById('dateStamp').textContent =
 document.getElementById('dateInput').value  = todayISO();
 document.getElementById('expDateInput').value = todayISO();
 showConnectedBanner();
-loadProjects().then(() => {
+Promise.all([loadProjects(), loadPeople()]).then(() => {
   renderExpProjectSelects();
   loadEntries();
   loadExpenses();
@@ -1224,8 +1254,11 @@ function handleProjectChange() {
 async function addEntry() {
   if (!SHEET_URL) { showToast('Connect your Google Sheet first.'); return; }
 
-  const dateVal = document.getElementById('dateInput').value;
-  const person  = document.getElementById('personSelect').value;
+  const dateVal   = document.getElementById('dateInput').value;
+  const rawPerson = document.getElementById('personSelect').value;
+  const person    = rawPerson === '__other__'
+    ? document.getElementById('otherPersonInput').value.trim()
+    : rawPerson;
   const rawProject = document.getElementById('projectSelect').value;
   const project = rawProject === '__other__'
     ? document.getElementById('otherProjectInput').value.trim()
@@ -1234,6 +1267,7 @@ async function addEntry() {
   const notes   = document.getElementById('notesInput').value.trim();
   const rate    = DEFAULT_RATE;
 
+  if (rawPerson === '__other__' && !person)   { showToast('Please enter a name.'); return; }
   if (rawProject === '__other__' && !project) { showToast('Please describe the project.'); return; }
 
   // resolve hours from whichever mode is active
@@ -1278,6 +1312,8 @@ async function addEntry() {
 function clearForm() {
   document.getElementById('dateInput').value    = todayISO();
   document.getElementById('personSelect').value = '';
+  document.getElementById('otherPersonInput').value = '';
+  document.getElementById('otherPersonWrap').classList.remove('visible');
   document.getElementById('hoursInput').value   = '';
   document.getElementById('projectSelect').value = '';
   document.getElementById('otherProjectInput').value = '';
@@ -1389,6 +1425,14 @@ function buildEditRow(e) {
   const otherSel   = isOther ? 'selected' : '';
   const otherStyle = isOther ? '' : 'display:none;margin-top:4px;';
 
+  // person options
+  const personOptions = people.map(p =>
+    `<option value="${p}" ${p === e.person ? 'selected' : ''}>${p}</option>`
+  ).join('');
+  const isOtherPerson    = e.person && !people.includes(e.person);
+  const otherPersonSel   = isOtherPerson ? 'selected' : '';
+  const otherPersonStyle = isOtherPerson ? '' : 'display:none;margin-top:4px;';
+
   return `
     <tr class="edit-row">
       <td>
@@ -1401,12 +1445,14 @@ function buildEditRow(e) {
         <div class="edit-cell-inner">
           <label>Who</label>
           <div class="select-arrow-wrap">
-            <select id="edit-person">
+            <select id="edit-person" onchange="toggleEditPersonOther()">
               <option value="" ${!e.person ? 'selected':''}>—</option>
-              <option value="CH" ${e.person==='CH'?'selected':''}>CH</option>
-              <option value="GF" ${e.person==='GF'?'selected':''}>GF</option>
+              ${personOptions}
+              <option value="__other__" ${otherPersonSel}>Other...</option>
             </select>
           </div>
+          <input type="text" id="edit-other-person" placeholder="Enter name..."
+            style="${otherPersonStyle}" value="${isOtherPerson ? e.person : ''}">
         </div>
       </td>
       <td>
@@ -1484,6 +1530,17 @@ function toggleEditOther() {
   else input.value = '';
 }
 
+function toggleEditPersonOther() {
+  const sel   = document.getElementById('edit-person');
+  const input = document.getElementById('edit-other-person');
+  if (!sel || !input) return;
+  const isOther = sel.value === '__other__';
+  input.style.display    = isOther ? '' : 'none';
+  input.style.marginTop  = isOther ? '4px' : '';
+  if (isOther) input.focus();
+  else input.value = '';
+}
+
 function openEditRow(id) {
   if (editingId === id) return; // already open
   editingId = id;
@@ -1504,7 +1561,10 @@ function onEditKeydown(e) {
 
 async function saveEdit(id) {
   const dateVal    = document.getElementById('edit-date').value;
-  const person     = document.getElementById('edit-person').value;
+  const rawPerson  = document.getElementById('edit-person').value;
+  const person     = rawPerson === '__other__'
+    ? document.getElementById('edit-other-person').value.trim()
+    : rawPerson;
   const hours      = parseFloat(document.getElementById('edit-hours').value);
   const rawProject = document.getElementById('edit-project').value;
   const project    = rawProject === '__other__'
@@ -1517,6 +1577,7 @@ async function saveEdit(id) {
   const rate       = (original && original.rate) || DEFAULT_RATE;
 
   if (!dateVal)              { showToast('Please select a date.'); return; }
+  if (rawPerson === '__other__' && !person) { showToast('Please enter a name.'); return; }
   if (!hours || hours <= 0)  { showToast('Please enter valid hours.'); return; }
   if (!project)              { showToast('Please select or enter a project.'); return; }
 
@@ -1645,6 +1706,134 @@ document.getElementById('projectModal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeProjectModal();
 });
 
+// ── People (Sheets-backed) ──────────────────────────────────────
+async function loadPeople() {
+  try {
+    const res  = await fetch(SHEET_URL + '?action=getPeople', { method: 'GET' });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      people = data.people;
+      renderPersonSelect();
+    }
+  } catch (err) {
+    // fall through with empty list
+  }
+}
+
+function renderPersonSelect() {
+  ['personSelect', 'expPersonSelect'].forEach(id => {
+    const sel     = document.getElementById(id);
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— select —</option>';
+    people.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p; opt.textContent = p;
+      sel.appendChild(opt);
+    });
+    const other = document.createElement('option');
+    other.value = '__other__'; other.textContent = 'Other...';
+    sel.appendChild(other);
+    if (current) sel.value = current;
+  });
+}
+
+function handlePersonChange() {
+  const isOther = document.getElementById('personSelect').value === '__other__';
+  const wrap    = document.getElementById('otherPersonWrap');
+  wrap.classList.toggle('visible', isOther);
+  if (isOther) setTimeout(() => document.getElementById('otherPersonInput').focus(), 50);
+  else document.getElementById('otherPersonInput').value = '';
+}
+
+function handleExpPersonChange() {
+  const isOther = document.getElementById('expPersonSelect').value === '__other__';
+  const wrap    = document.getElementById('expOtherPersonWrap');
+  wrap.classList.toggle('visible', isOther);
+  if (isOther) setTimeout(() => document.getElementById('expOtherPersonInput').focus(), 50);
+  else document.getElementById('expOtherPersonInput').value = '';
+}
+
+function openPersonModal() {
+  renderPersonList();
+  document.getElementById('personModal').classList.add('open');
+  setTimeout(() => document.getElementById('newPersonName').focus(), 50);
+}
+function closePersonModal() {
+  document.getElementById('personModal').classList.remove('open');
+  document.getElementById('newPersonName').value = '';
+}
+
+function renderPersonList() {
+  const list = document.getElementById('personList');
+  if (people.length === 0) {
+    list.innerHTML = '<div class="project-list-empty">No people yet.</div>';
+    return;
+  }
+  list.innerHTML = people.map((p, i) => `
+    <div class="project-list-item">
+      <span class="project-list-name">${p}</span>
+      <button class="btn-remove-project" onclick="removePerson(${i})">Remove</button>
+    </div>`).join('');
+}
+
+async function addPerson() {
+  const name = document.getElementById('newPersonName').value.trim();
+  if (!name) { showToast('Please enter a name.'); return; }
+  if (people.includes(name)) { showToast('Already in the list.'); return; }
+
+  const addBtn = document.querySelector('#personModal .btn-primary');
+  addBtn.textContent = 'Saving...'; addBtn.disabled = true;
+
+  try {
+    const params = new URLSearchParams({ action: 'addPerson', name });
+    const res    = await fetch(SHEET_URL + '?' + params.toString(), { method: 'GET' });
+    const result = await res.json();
+    if (result.status === 'ok') {
+      people.push(name);
+      renderPersonSelect();
+      document.getElementById('personSelect').value = name;
+      document.getElementById('newPersonName').value = '';
+      renderPersonList();
+      showToast(`"${name}" added ✓`);
+    } else {
+      showToast('Error: ' + result.message);
+    }
+  } catch (err) {
+    showToast('Could not save.');
+  } finally {
+    addBtn.textContent = '+ Add'; addBtn.disabled = false;
+  }
+}
+
+async function removePerson(index) {
+  const name = people[index];
+  if (!confirm(`Remove "${name}" from the people list?`)) return;
+
+  try {
+    const params = new URLSearchParams({ action: 'removePerson', name });
+    const res    = await fetch(SHEET_URL + '?' + params.toString(), { method: 'GET' });
+    const result = await res.json();
+    if (result.status === 'ok') {
+      people.splice(index, 1);
+      renderPersonSelect();
+      renderPersonList();
+      showToast(`"${name}" removed.`);
+    } else {
+      showToast('Error: ' + result.message);
+    }
+  } catch (err) {
+    showToast('Could not remove.');
+  }
+}
+
+document.getElementById('newPersonName').addEventListener('keydown', e => {
+  if (e.key === 'Enter')  addPerson();
+  if (e.key === 'Escape') closePersonModal();
+});
+document.getElementById('personModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closePersonModal();
+});
+
 // ── Expenses ──────────────────────────────────────────────────
 let expenses = [];
 let expEditingId = null;
@@ -1708,7 +1897,10 @@ async function addExpense() {
   if (!SHEET_URL) { showToast('Connect your Google Sheet first.'); return; }
 
   const dateVal    = document.getElementById('expDateInput').value;
-  const person     = document.getElementById('expPersonSelect').value;
+  const rawPerson  = document.getElementById('expPersonSelect').value;
+  const person     = rawPerson === '__other__'
+    ? document.getElementById('expOtherPersonInput').value.trim()
+    : rawPerson;
   const rawProject = document.getElementById('expProjectSelect').value;
   const project    = rawProject === '__other__'
     ? document.getElementById('expOtherProjectInput').value.trim()
@@ -1717,6 +1909,7 @@ async function addExpense() {
   const notes      = document.getElementById('expNotes').value.trim();
 
   if (!dateVal)               { showToast('Please select a date.'); return; }
+  if (rawPerson === '__other__' && !person)   { showToast('Please enter a name.'); return; }
   if (!person)                { showToast('Please select who is logging.'); return; }
   if (!project)               { showToast('Please select a project.'); return; }
   if (rawProject === '__other__' && !project) { showToast('Please describe the project.'); return; }
@@ -1751,6 +1944,8 @@ async function addExpense() {
 function clearExpenseForm() {
   document.getElementById('expDateInput').value    = todayISO();
   document.getElementById('expPersonSelect').value = '';
+  document.getElementById('expOtherPersonInput').value = '';
+  document.getElementById('expOtherPersonWrap').classList.remove('visible');
   document.getElementById('expProjectSelect').value = '';
   document.getElementById('expOtherProjectInput').value = '';
   document.getElementById('expOtherProjectWrap').classList.remove('visible');
@@ -1802,6 +1997,13 @@ function buildExpenseEditRow(e) {
   const otherSel = isOther ? 'selected' : '';
   const otherStyle = isOther ? '' : 'display:none;margin-top:4px;';
 
+  const personOptions = people.map(p =>
+    `<option value="${p}" ${p === e.person ? 'selected' : ''}>${p}</option>`
+  ).join('');
+  const isOtherPerson    = e.person && !people.includes(e.person);
+  const otherPersonSel   = isOtherPerson ? 'selected' : '';
+  const otherPersonStyle = isOtherPerson ? '' : 'display:none;margin-top:4px;';
+
   return `
     <tr class="edit-row">
       <td>
@@ -1814,12 +2016,14 @@ function buildExpenseEditRow(e) {
         <div class="edit-cell-inner">
           <label>Who</label>
           <div class="select-arrow-wrap">
-            <select id="exp-edit-person">
+            <select id="exp-edit-person" onchange="toggleExpEditPersonOther()">
               <option value="" ${!e.person?'selected':''}>—</option>
-              <option value="CH" ${e.person==='CH'?'selected':''}>CH</option>
-              <option value="GF" ${e.person==='GF'?'selected':''}>GF</option>
+              ${personOptions}
+              <option value="__other__" ${otherPersonSel}>Other...</option>
             </select>
           </div>
+          <input type="text" id="exp-edit-other-person" placeholder="Enter name..."
+            style="${otherPersonStyle}" value="${isOtherPerson ? e.person : ''}">
         </div>
       </td>
       <td>
@@ -1866,6 +2070,17 @@ function toggleExpEditOther() {
   else input.value = '';
 }
 
+function toggleExpEditPersonOther() {
+  const sel   = document.getElementById('exp-edit-person');
+  const input = document.getElementById('exp-edit-other-person');
+  if (!sel || !input) return;
+  const isOther = sel.value === '__other__';
+  input.style.display   = isOther ? '' : 'none';
+  input.style.marginTop = isOther ? '4px' : '';
+  if (isOther) input.focus();
+  else input.value = '';
+}
+
 function openExpenseEditRow(id) {
   if (expEditingId === id) return;
   expEditingId = id;
@@ -1885,7 +2100,10 @@ function onExpenseEditKeydown(e) {
 
 async function saveExpenseEdit(id) {
   const dateVal    = document.getElementById('exp-edit-date').value;
-  const person     = document.getElementById('exp-edit-person').value;
+  const rawPerson  = document.getElementById('exp-edit-person').value;
+  const person     = rawPerson === '__other__'
+    ? document.getElementById('exp-edit-other-person').value.trim()
+    : rawPerson;
   const rawProject = document.getElementById('exp-edit-project').value;
   const project    = rawProject === '__other__'
     ? document.getElementById('exp-edit-other-project').value.trim()
@@ -1894,6 +2112,7 @@ async function saveExpenseEdit(id) {
   const notes      = document.getElementById('exp-edit-notes').value.trim();
 
   if (!dateVal)               { showToast('Please select a date.'); return; }
+  if (rawPerson === '__other__' && !person) { showToast('Please enter a name.'); return; }
   if (!project)               { showToast('Please select a project.'); return; }
   if (!amount || amount <= 0) { showToast('Please enter a valid amount.'); return; }
 
