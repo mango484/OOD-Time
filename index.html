@@ -1333,7 +1333,13 @@ function clearForm() {
 }
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  // Use local date parts, not toISOString() (which is UTC and rolls over
+  // to "tomorrow" every evening once local time crosses midnight UTC).
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function getProjectColor(name) {
@@ -1525,10 +1531,15 @@ function buildEditRow(e) {
 
 function dateToISO(displayDate) {
   // Convert "Apr 16, 2026" → "2026-04-16"
+  // Use local date parts, not toISOString() (UTC), so this can't roll the
+  // date backward or forward a day depending on the viewer's timezone.
   try {
     const d = new Date(displayDate);
     if (isNaN(d)) return '';
-    return d.toISOString().slice(0, 10);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   } catch { return ''; }
 }
 
@@ -1726,11 +1737,11 @@ async function loadPeople() {
     const data = await res.json();
     if (data.status === 'ok') {
       people = data.people;
-      renderPersonSelect();
     }
   } catch (err) {
     // fall through with empty list
   }
+  renderPersonSelect(); // always render — at minimum this shows "Other..."
 }
 
 function renderPersonSelect() {
