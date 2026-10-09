@@ -867,6 +867,7 @@ tr.edit-row td:first-child {
           <option value="EST">EST — Cost Estimate</option>
           <option value="DD">DD — Design Development</option>
           <option value="CD">CD — Construction Documents</option>
+          <option value="PER">PER — Permitting</option>
           <option value="BID">BID — Bidding</option>
           <option value="CA">CA — Construction Observation</option>
         </select>
@@ -973,6 +974,12 @@ tr.edit-row td:first-child {
 
         <label for="expNotes">Description</label>
         <textarea id="expNotes" placeholder="What was the expense for?"></textarea>
+
+        <label>Account</label>
+        <div style="display:flex;align-items:center;gap:8px;padding-top:6px;">
+          <input type="checkbox" id="expPersonalAccount" style="width:auto;cursor:pointer;">
+          <label for="expPersonalAccount" style="padding-top:0;text-transform:none;letter-spacing:normal;font-size:0.85rem;color:var(--ink);cursor:pointer;">Charged to a personal card/account (not the company card)</label>
+        </div>
 
         <div class="form-actions">
           <button class="btn-ghost" onclick="clearExpenseForm()">Clear</button>
@@ -1505,6 +1512,7 @@ function buildEditRow(e) {
               <option value="EST" ${e.phase==='EST'?'selected':''}>EST — Cost Estimate</option>
               <option value="DD" ${e.phase==='DD'?'selected':''}>DD — Design Development</option>
               <option value="CD" ${e.phase==='CD'?'selected':''}>CD — Construction Documents</option>
+              <option value="PER" ${e.phase==='PER'?'selected':''}>PER — Permitting</option>
               <option value="BID" ${e.phase==='BID'?'selected':''}>BID — Bidding</option>
               <option value="CA" ${e.phase==='CA'?'selected':''}>CA — Construction Observation</option>
             </select>
@@ -1904,7 +1912,8 @@ async function loadExpenses() {
         person:  e.person || '',
         project: e.project,
         amount:  parseFloat(e.amount),
-        notes:   e.notes || ''
+        notes:   e.notes || '',
+        account: e.account || ''
       }));
       renderExpenseTable();
     } else {
@@ -1931,6 +1940,7 @@ async function addExpense() {
     : rawProject;
   const amount     = parseFloat(document.getElementById('expAmount').value);
   const notes      = document.getElementById('expNotes').value.trim();
+  const isPersonal = document.getElementById('expPersonalAccount').checked;
 
   if (!dateVal)               { showToast('Please select a date.'); return; }
   if (rawPerson === '__other__' && !person)   { showToast('Please enter a name.'); return; }
@@ -1941,13 +1951,14 @@ async function addExpense() {
 
   const [y, m, d]   = dateVal.split('-');
   const dateDisplay = new Date(y, m-1, d).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  const account      = isPersonal ? person : '';
 
   const logBtn = document.querySelector('.btn-primary[onclick="addExpense()"]');
   logBtn.textContent = 'Saving...'; logBtn.disabled = true;
 
   try {
     const params = new URLSearchParams({
-      action: 'addExpense', date: dateDisplay, person, project, amount, notes
+      action: 'addExpense', date: dateDisplay, person, project, amount, notes, account
     });
     const res    = await fetch(SHEET_URL + '?' + params.toString(), { method: 'GET' });
     const result = await res.json();
@@ -1975,6 +1986,7 @@ function clearExpenseForm() {
   document.getElementById('expOtherProjectWrap').classList.remove('visible');
   document.getElementById('expAmount').value = '';
   document.getElementById('expNotes').value  = '';
+  document.getElementById('expPersonalAccount').checked = false;
 }
 
 function renderExpenseTable() {
@@ -2001,13 +2013,14 @@ function renderExpenseTable() {
         <td class="td-project"><span class="project-dot" style="background:${getProjectColor(e.project)}"></span>${e.project}</td>
         <td class="td-hours" style="color:var(--success)">$${e.amount.toFixed(2)}</td>
         <td class="td-notes">${e.notes || '<span style="opacity:0.35">—</span>'}</td>
+        <td class="td-acct">${e.account ? '<span style="font-size:0.68rem;letter-spacing:0.08em;color:var(--accent);border:1px solid var(--accent);padding:2px 6px;">PERSONAL</span>' : '<span style="opacity:0.35">—</span>'}</td>
       </tr>`;
   }).join('');
 
   wrap.innerHTML = `
     <div class="log-table-wrap">
     <table>
-      <thead><tr><th>Date</th><th>Who</th><th>Project</th><th>Amount</th><th>Description</th></tr></thead>
+      <thead><tr><th>Date</th><th>Who</th><th>Project</th><th>Amount</th><th>Description</th><th>Account</th></tr></thead>
       <tbody>${tbody}</tbody>
     </table>
     </div>`;
@@ -2073,6 +2086,15 @@ function buildExpenseEditRow(e) {
         <div class="edit-cell-inner">
           <label>Description</label>
           <textarea id="exp-edit-notes">${e.notes || ''}</textarea>
+        </div>
+      </td>
+      <td>
+        <div class="edit-cell-inner">
+          <label>Account</label>
+          <div style="display:flex;align-items:center;gap:6px;padding-top:6px;">
+            <input type="checkbox" id="exp-edit-personal" style="width:auto;cursor:pointer;" ${e.account ? 'checked' : ''}>
+            <label for="exp-edit-personal" style="padding-top:0;text-transform:none;letter-spacing:normal;font-size:0.8rem;color:var(--ink);cursor:pointer;">Personal card</label>
+          </div>
           <div class="edit-actions">
             <button class="btn-save" style="background:var(--success);border-color:var(--success);" onclick="saveExpenseEdit('${e.id}')">Save</button>
             <button class="btn-cancel-edit" onclick="cancelExpenseEdit()">Cancel</button>
@@ -2134,6 +2156,7 @@ async function saveExpenseEdit(id) {
     : rawProject;
   const amount     = parseFloat(document.getElementById('exp-edit-amount').value);
   const notes      = document.getElementById('exp-edit-notes').value.trim();
+  const isPersonal = document.getElementById('exp-edit-personal').checked;
 
   if (!dateVal)               { showToast('Please select a date.'); return; }
   if (rawPerson === '__other__' && !person) { showToast('Please enter a name.'); return; }
@@ -2142,13 +2165,14 @@ async function saveExpenseEdit(id) {
 
   const [y, m, d]   = dateVal.split('-');
   const dateDisplay = new Date(y, m-1, d).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  const account      = isPersonal ? person : '';
 
   const saveBtn = document.querySelector('.edit-row .btn-save');
   if (saveBtn) { saveBtn.textContent = 'Saving...'; saveBtn.disabled = true; }
 
   try {
     const params = new URLSearchParams({
-      action: 'updateExpense', id, date: dateDisplay, person, project, amount, notes
+      action: 'updateExpense', id, date: dateDisplay, person, project, amount, notes, account
     });
     const res    = await fetch(SHEET_URL + '?' + params.toString(), { method: 'GET' });
     const result = await res.json();
