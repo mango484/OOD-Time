@@ -118,6 +118,17 @@ input, select, textarea {
   appearance: none;
   -webkit-appearance: none;
 }
+input[type="checkbox"] {
+  -webkit-appearance: checkbox;
+  appearance: auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 input:focus, select:focus, textarea:focus {
   border-color: var(--accent);
   box-shadow: 2px 2px 0 var(--accent);
@@ -977,7 +988,7 @@ tr.edit-row td:first-child {
 
         <label>Account</label>
         <div style="display:flex;align-items:center;gap:8px;padding-top:6px;">
-          <input type="checkbox" id="expPersonalAccount" style="width:auto;cursor:pointer;">
+          <input type="checkbox" id="expPersonalAccount" style="cursor:pointer;">
           <label for="expPersonalAccount" style="padding-top:0;text-transform:none;letter-spacing:normal;font-size:0.85rem;color:var(--ink);cursor:pointer;">Charged to a personal card/account (not the company card)</label>
         </div>
 
@@ -2092,7 +2103,7 @@ function buildExpenseEditRow(e) {
         <div class="edit-cell-inner">
           <label>Account</label>
           <div style="display:flex;align-items:center;gap:6px;padding-top:6px;">
-            <input type="checkbox" id="exp-edit-personal" style="width:auto;cursor:pointer;" ${e.account ? 'checked' : ''}>
+            <input type="checkbox" id="exp-edit-personal" style="cursor:pointer;" ${e.account ? 'checked' : ''}>
             <label for="exp-edit-personal" style="padding-top:0;text-transform:none;letter-spacing:normal;font-size:0.8rem;color:var(--ink);cursor:pointer;">Personal card</label>
           </div>
           <div class="edit-actions">
