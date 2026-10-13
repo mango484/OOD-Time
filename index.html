@@ -15,6 +15,7 @@
   --muted: #8b94c9;
   --line: #2e3566;
   --success: #4db88a;
+  --dist: #e0b25c;
   --card: #20245c;
 }
 body {
@@ -1021,6 +1022,68 @@ tr.edit-row td:first-child {
     </div>
   </div>
 
+  <!-- DISTRIBUTIONS -->
+  <div class="log-section" style="margin-top:56px;">
+    <div class="log-header collapsible-header" onclick="toggleDistLog()" style="cursor:pointer;">
+      <div class="log-title" style="color:var(--dist)">Distributions</div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn-export" onclick="event.stopPropagation();loadDistributions()" style="background:var(--dist);border-color:var(--dist);">↻ Refresh</button>
+        <span class="collapse-chevron collapsed" id="distLogChevron">▾</span>
+      </div>
+    </div>
+
+    <!-- Distribution entry form -->
+    <div class="entry-form" style="margin-bottom:28px;position:relative;">
+      <div style="position:absolute;top:-10px;left:20px;background:var(--dist);color:var(--paper);font-size:0.62rem;letter-spacing:0.12em;padding:2px 10px;">NEW DISTRIBUTION</div>
+      <div class="form-grid">
+
+        <label for="distDateInput">Date</label>
+        <input type="date" id="distDateInput">
+
+        <label for="distPersonSelect">To</label>
+        <div class="select-arrow-wrap">
+          <select id="distPersonSelect">
+            <option value="">— select —</option>
+          </select>
+        </div>
+
+        <label for="distKindSelect">Kind</label>
+        <div class="select-arrow-wrap">
+          <select id="distKindSelect">
+            <option value="Draw">Draw (monthly pay)</option>
+            <option value="Tax">Tax (to the estimated-tax account)</option>
+            <option value="Sweep">Sweep (quarterly surplus)</option>
+          </select>
+        </div>
+
+        <label for="distAmount">Amount</label>
+        <div class="time-input-wrap">
+          <span class="time-unit" style="margin-right:2px;">$</span>
+          <input type="number" id="distAmount" min="0" step="0.01" placeholder="0.00" style="width:120px;">
+        </div>
+
+        <label for="distNotes">Notes</label>
+        <textarea id="distNotes" placeholder="Optional, e.g. October draw"></textarea>
+
+        <div class="form-actions">
+          <button class="btn-ghost" onclick="clearDistForm()">Clear</button>
+          <button class="btn-primary" style="background:var(--dist);border-color:var(--dist);" onclick="addDistribution()">Log Distribution →</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Distribution log table (collapsible) -->
+    <div id="distLogBody" class="collapsible-body collapsed">
+      <div id="distTableWrap">
+        <div class="empty-state">
+          <div class="empty-icon">→</div>
+          No distributions logged here yet.
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- MANAGE PROJECTS MODAL -->
@@ -1111,11 +1174,13 @@ document.getElementById('dateStamp').textContent =
 
 document.getElementById('dateInput').value  = todayISO();
 document.getElementById('expDateInput').value = todayISO();
+document.getElementById('distDateInput').value = todayISO();
 showConnectedBanner();
 Promise.all([loadProjects(), loadPeople()]).then(() => {
   renderExpProjectSelects();
   loadEntries();
   loadExpenses();
+  loadDistributions();
 });
 
 // ── Time Mode Toggle ─────────────────────────────────────────
@@ -1764,7 +1829,7 @@ async function loadPeople() {
 }
 
 function renderPersonSelect() {
-  ['personSelect', 'expPersonSelect'].forEach(id => {
+  ['personSelect', 'expPersonSelect', 'distPersonSelect'].forEach(id => {
     const sel     = document.getElementById(id);
     const current = sel.value;
     sel.innerHTML = '<option value="">— select —</option>';
@@ -1776,6 +1841,7 @@ function renderPersonSelect() {
     const other = document.createElement('option');
     other.value = '__other__'; other.textContent = 'Other...';
     sel.appendChild(other);
+    if (id === 'distPersonSelect') sel.removeChild(other);
     if (current) sel.value = current;
   });
 }
@@ -1876,6 +1942,106 @@ document.getElementById('newPersonName').addEventListener('keydown', e => {
 document.getElementById('personModal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closePersonModal();
 });
+
+// ── Distributions ─────────────────────────────────────────────
+// Written to the Time Log with Type "Distribution". The OOD Bookkeeping tab
+// and the Monthly Close read them from there. Kind goes first in Notes, because
+// the Monthly Close identifies tax transfers and sweeps by the words "tax" and "sweep".
+let distributions = [];
+let distLogExpanded = false;
+
+function toggleDistLog() {
+  distLogExpanded = !distLogExpanded;
+  document.getElementById('distLogBody').classList.toggle('collapsed', !distLogExpanded);
+  document.getElementById('distLogChevron').classList.toggle('collapsed', !distLogExpanded);
+}
+
+async function loadDistributions() {
+  if (!SHEET_URL) return;
+  try {
+    const res  = await fetch(SHEET_URL + '?action=getDistributions', { method: 'GET' });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      distributions = data.distributions.reverse().map(d => ({
+        date: d.date, person: d.person || '', amount: parseFloat(d.amount), notes: d.notes || ''
+      }));
+    }
+  } catch (err) {
+    // Backend not updated yet, or offline: show the empty state.
+  }
+  renderDistTable();
+}
+
+async function addDistribution() {
+  if (!SHEET_URL) { showToast('Connect your Google Sheet first.'); return; }
+
+  const dateVal = document.getElementById('distDateInput').value;
+  const person  = document.getElementById('distPersonSelect').value;
+  const kind    = document.getElementById('distKindSelect').value;
+  const amount  = parseFloat(document.getElementById('distAmount').value);
+  const extra   = document.getElementById('distNotes').value.trim();
+
+  if (!dateVal)               { showToast('Please select a date.'); return; }
+  if (!person)                { showToast('Please select who received it.'); return; }
+  if (!amount || amount <= 0) { showToast('Please enter a valid amount.'); return; }
+  if (kind === 'Draw' && /tax|sweep/i.test(extra)) {
+    showToast('For a draw, leave the words "tax" and "sweep" out of the notes.'); return;
+  }
+
+  const [y, m, d]   = dateVal.split('-');
+  const dateDisplay = new Date(y, m-1, d).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  const notes       = extra ? kind + ': ' + extra : kind;
+
+  const logBtn = document.querySelector('.btn-primary[onclick="addDistribution()"]');
+  logBtn.textContent = 'Saving...'; logBtn.disabled = true;
+
+  try {
+    const params = new URLSearchParams({ action: 'addDistribution', date: dateDisplay, person, amount, notes });
+    const res    = await fetch(SHEET_URL + '?' + params.toString(), { method: 'GET' });
+    const result = await res.json();
+    if (result.status === 'ok') {
+      showToast('Distribution logged ✓');
+      clearDistForm();
+      await loadDistributions();
+    } else {
+      showToast('Error: ' + result.message);
+    }
+  } catch (err) {
+    showToast('Could not save distribution.');
+  } finally {
+    logBtn.textContent = 'Log Distribution →'; logBtn.disabled = false;
+  }
+}
+
+function clearDistForm() {
+  document.getElementById('distDateInput').value    = todayISO();
+  document.getElementById('distPersonSelect').value = '';
+  document.getElementById('distKindSelect').value   = 'Draw';
+  document.getElementById('distAmount').value       = '';
+  document.getElementById('distNotes').value        = '';
+}
+
+function renderDistTable() {
+  const wrap = document.getElementById('distTableWrap');
+  if (distributions.length === 0) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">→</div>No distributions logged here yet.</div>`;
+    return;
+  }
+  const rows = distributions.map(d => `
+      <tr>
+        <td class="td-date">${d.date}</td>
+        <td class="td-person">${d.person}</td>
+        <td class="td-hours" style="color:var(--dist)">$${d.amount.toFixed(2)}</td>
+        <td class="td-notes">${d.notes}</td>
+      </tr>`).join('');
+  wrap.innerHTML = `
+    <div class="log-table-wrap">
+    <table>
+      <thead><tr><th>Date</th><th>To</th><th>Amount</th><th>Kind / notes</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    </div>`;
+}
 
 // ── Expenses ──────────────────────────────────────────────────
 let expenses = [];
